@@ -122,6 +122,11 @@ fonts or change your terminal settings.
 | `HERDR_AGENT_GRID_MOTION` | `on` (default), `off` |
 | `HERDR_AGENT_GRID_THEME` | `light` for darker accents on a light terminal |
 | `HERDR_AGENT_GRID_CLAUDE_DIRS` | Additional Claude config roots, separated by `:` |
+| `HERDR_AGENT_GRID_UNREAD_DB` | Path to the `arthur.unread` database (default: its Herdr plugin state) |
+
+Idle agents marked by the [`arthur.unread`](https://github.com/arthurnw/herdr-unread)
+plugin show as done and stay visible when completed agents are hidden. This
+requires the `sqlite3` CLI.
 
 Legacy `HERDR_GRID_*` settings remain supported. `font` mode is useful when
 viewing through a terminal with the icon font while the plugin runs remotely.

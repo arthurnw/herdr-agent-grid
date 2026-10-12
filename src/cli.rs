@@ -3,6 +3,7 @@ use crate::{
     client::{Client, Result},
     model::{State, agents_from, demo_state, now},
     sessions::Telemetry,
+    unread::UnreadMarks,
     view::View,
 };
 use std::{env, io::IsTerminal};
@@ -74,7 +75,11 @@ pub fn main(args: Vec<String>) -> Result<()> {
         demo_state()
     } else if render || list || doctor {
         State {
-            agents: agents_from(&client.as_ref().unwrap().snapshot()?),
+            agents: {
+                let mut agents = agents_from(&client.as_ref().unwrap().snapshot()?);
+                UnreadMarks::default().apply(&mut agents);
+                agents
+            },
             updated: now(),
             ..State::default()
         }
