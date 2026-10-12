@@ -240,6 +240,112 @@ fn wrap_cells(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
+/// Where a repo header sits in the grouped layout.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SectionHeader {
+    pub section: usize,
+    pub page: usize,
+    pub y: usize,
+    /// Repeated at the top of a page because the section started on an earlier one.
+    pub continued: bool,
+}
+
+/// The grouped layout. Per-card vectors are in item order.
+#[derive(Clone, Default)]
+pub struct Sections {
+    pub rects: Vec<Rect>,
+    pub pages: Vec<usize>,
+    pub rows: Vec<usize>,
+    pub cols: Vec<usize>,
+    pub headers: Vec<SectionHeader>,
+    pub columns: usize,
+    pub page_count: usize,
+}
+
+/// Lays out consecutive sections of `sizes` cards, each under a one-row header.
+/// Cards share one size and column grid; sections that don't fit move to the next page.
+pub fn sections(width: usize, height: usize, sizes: &[usize]) -> Sections {
+    let (width, height) = (width.max(1), height.max(1));
+    let mut out = Sections {
+        columns: 1,
+        page_count: 1,
+        ..Sections::default()
+    };
+    let largest = sizes.iter().copied().max().unwrap_or(0);
+    if largest == 0 {
+        return out;
+    }
+    let columns = ((width + 1) / 37).clamp(1, largest);
+    let card_rows: usize = sizes.iter().map(|n| n.div_ceil(columns)).sum();
+    let headers = sizes.iter().filter(|n| **n > 0).count();
+    let tile_w = (width + 1) / columns - 1;
+    let min_h = 9.min(height.saturating_sub(1)).max(1);
+    let max_h = (tile_w / 3).max(12);
+    let tile_h = ((height + 1).saturating_sub(headers) / card_rows)
+        .saturating_sub(1)
+        .clamp(min_h, max_h.max(min_h));
+    let (mut page, mut y, mut row) = (0, 0, 0);
+    for (section, &n) in sizes.iter().enumerate() {
+        if n == 0 {
+            continue;
+        }
+        if y > 0 && y + 1 + tile_h > height {
+            page += 1;
+            y = 0;
+        }
+        out.headers.push(SectionHeader {
+            section,
+            page,
+            y,
+            continued: false,
+        });
+        y += 1;
+        for start in (0..n).step_by(columns) {
+            if start > 0 && y + tile_h > height {
+                page += 1;
+                out.headers.push(SectionHeader {
+                    section,
+                    page,
+                    y: 0,
+                    continued: true,
+                });
+                y = 1;
+            }
+            for col in 0..columns.min(n - start) {
+                let (left, right) = (
+                    col * (width + 1) / columns,
+                    (col + 1) * (width + 1) / columns - 1,
+                );
+                out.rects.push(Rect {
+                    x: left,
+                    y,
+                    width: right.saturating_sub(left).max(1),
+                    height: tile_h,
+                });
+                out.pages.push(page);
+                out.rows.push(row);
+                out.cols.push(col);
+            }
+            row += 1;
+            y += tile_h + 1;
+        }
+    }
+    out.columns = columns;
+    out.page_count = page + 1;
+    out
+}
+
+/// Revision, size, selection, query, zoom, hide completed, grouped.
+type ArrangementKey = (u64, usize, usize, String, String, bool, bool, bool);
+
+/// A run of consecutive items from one repo.
+#[derive(Clone, Default)]
+struct Group {
+    label: String,
+    start: usize,
+    len: usize,
+}
+
 #[derive(Default)]
 pub struct View {
     pub selected: String,
@@ -267,9 +373,15 @@ pub struct View {
     pub scope_label: String,
     /// The agent card selected before entering the subagents view.
     pub return_to: String,
+    /// Cards in repo sections instead of one working-first list.
+    pub grouped: bool,
+    /// Headers on the current page: row, label, working count, card count, continued.
+    pub headers: Vec<(usize, String, usize, usize, bool)>,
+    groups: Vec<Group>,
+    sections: Sections,
     indices: HashMap<String, usize>,
-    inventory_key: Option<(u64, String, bool)>,
-    arrangement_key: Option<(u64, usize, usize, String, String, bool, bool)>,
+    inventory_key: Option<(u64, String, bool, bool)>,
+    arrangement_key: Option<ArrangementKey>,
     overview_revision: Option<u64>,
     overview_value: (HashMap<String, usize>, String),
 }
@@ -294,6 +406,48 @@ impl View {
             raw.clamp(0, self.items.len() as isize - 1)
         } as usize;
         self.selected = state.agents[self.items[index]].pane_id.clone();
+    }
+    fn select_item(&mut self, state: &State, index: usize) {
+        if let Some(i) = self.items.get(index) {
+            self.selected = state.agents[*i].pane_id.clone();
+        }
+    }
+    /// Moves to the nearest card in the row above or below, across section headers.
+    pub fn move_rows(&mut self, state: &State, delta: isize) {
+        let s = &self.sections;
+        let i = self.index();
+        let (Some(row), Some(col)) = (s.rows.get(i), s.cols.get(i)) else {
+            return;
+        };
+        let target = *row as isize + delta;
+        if let Some(k) = (0..s.rows.len())
+            .filter(|k| s.rows[*k] as isize == target)
+            .min_by_key(|k| s.cols[*k].abs_diff(*col))
+        {
+            self.select_item(state, k);
+        }
+    }
+    /// Moves to the first card of the previous or next page, or the first or last card at either end.
+    pub fn move_pages(&mut self, state: &State, delta: isize) {
+        let page = (self.page as isize + delta).clamp(0, self.page_count as isize - 1) as usize;
+        let target = if page == self.page {
+            if delta > 0 {
+                self.items.len().saturating_sub(1)
+            } else {
+                0
+            }
+        } else {
+            self.sections
+                .pages
+                .iter()
+                .position(|p| *p == page)
+                .unwrap_or(0)
+        };
+        self.select_item(state, target);
+    }
+    pub fn toggle_grouped(&mut self) {
+        self.grouped = !self.grouped;
+        self.zoom = false;
     }
     fn invalidate(&mut self) {
         self.inventory_key = None;
@@ -385,12 +539,18 @@ impl View {
             self.query.clone(),
             self.zoom,
             self.hide_completed,
+            self.grouped,
         );
         if state.revision != 0 && self.arrangement_key.as_ref() == Some(&key) {
             return;
         }
         let query = casefold(&self.query);
-        let inv = (state.revision, query.clone(), self.hide_completed);
+        let inv = (
+            state.revision,
+            query.clone(),
+            self.hide_completed,
+            self.grouped,
+        );
         if state.revision == 0 || self.inventory_key.as_ref() != Some(&inv) {
             self.items = state
                 .agents
@@ -407,11 +567,12 @@ impl View {
                 .filter(|(_, a)| {
                     query.is_empty()
                         || casefold(&format!(
-                            "{} {} {} {} {} {}",
+                            "{} {} {} {} {} {} {}",
                             a.name,
                             a.kind,
                             a.title,
                             a.workspace,
+                            a.repo,
                             a.status,
                             state
                                 .metrics
@@ -423,8 +584,50 @@ impl View {
                 })
                 .map(|(i, _)| i)
                 .collect();
-            self.items
-                .sort_by_key(|i| state.agents[*i].status != "working");
+            if self.grouped {
+                // Repos follow the sidebar position of their first workspace; agents
+                // outside a repo go last.
+                let mut rank: HashMap<&str, u64> = HashMap::new();
+                for a in &state.agents {
+                    if !a.repo_key.is_empty() {
+                        let r = rank.entry(&a.repo_key).or_insert(u64::MAX);
+                        *r = (*r).min(a.workspace_order);
+                    }
+                }
+                self.items.sort_by_key(|i| {
+                    let a = &state.agents[*i];
+                    (
+                        a.repo_key.is_empty(),
+                        rank.get(a.repo_key.as_str()).copied().unwrap_or(u64::MAX),
+                        a.repo_key.clone(),
+                        a.status != "working",
+                        a.workspace_order,
+                        a.tab_order,
+                    )
+                });
+                self.groups.clear();
+                for (n, i) in self.items.iter().enumerate() {
+                    let a = &state.agents[*i];
+                    let same = n > 0 && state.agents[self.items[n - 1]].repo_key == a.repo_key;
+                    match self.groups.last_mut() {
+                        Some(g) if same => g.len += 1,
+                        _ => self.groups.push(Group {
+                            label: if a.repo_key.is_empty() {
+                                "Other workspaces".into()
+                            } else if a.repo.is_empty() {
+                                a.workspace.clone()
+                            } else {
+                                a.repo.clone()
+                            },
+                            start: n,
+                            len: 1,
+                        }),
+                    }
+                }
+            } else {
+                self.items
+                    .sort_by_key(|i| state.agents[*i].status != "working");
+            }
             self.indices = self
                 .items
                 .iter()
@@ -442,6 +645,34 @@ impl View {
         }
         self.top = if height >= 18 { 5 } else { 2 };
         let index = self.index();
+        self.headers.clear();
+        if self.grouped && !self.zoom && !self.items.is_empty() {
+            let sizes: Vec<usize> = self.groups.iter().map(|g| g.len).collect();
+            let s = sections(width, height.saturating_sub(self.top + 2).max(1), &sizes);
+            self.page = s.pages[index];
+            self.page_count = s.page_count;
+            let on_page: Vec<usize> = (0..self.items.len())
+                .filter(|k| s.pages[*k] == self.page)
+                .collect();
+            self.visible = on_page.iter().map(|k| self.items[*k]).collect();
+            self.geometry = Layout {
+                rects: on_page.iter().map(|k| s.rects[*k]).collect(),
+                columns: s.columns,
+                capacity: on_page.len().max(1),
+            };
+            for h in s.headers.iter().filter(|h| h.page == self.page) {
+                let g = &self.groups[h.section];
+                let working = self.items[g.start..g.start + g.len]
+                    .iter()
+                    .filter(|i| state.agents[**i].status == "working")
+                    .count();
+                self.headers
+                    .push((h.y, g.label.clone(), working, g.len, h.continued));
+            }
+            self.sections = s;
+            self.arrangement_key = Some(key);
+            return;
+        }
         self.geometry = layout(
             width,
             height.saturating_sub(self.top + 2).max(1),
@@ -461,15 +692,7 @@ impl View {
         let end =
             (start + if self.zoom { 1 } else { self.geometry.capacity }).min(self.items.len());
         self.visible = self.items[start..end].to_vec();
-        self.arrangement_key = Some((
-            state.revision,
-            width,
-            height,
-            self.selected.clone(),
-            self.query.clone(),
-            self.zoom,
-            self.hide_completed,
-        ));
+        self.arrangement_key = Some(key);
     }
     pub fn animating(&self, state: &State) -> bool {
         if self.zoom
@@ -580,6 +803,8 @@ impl View {
             format!("/ {}", self.scope_label)
         } else if self.page_count > 1 {
             format!("/ page {} of {}", self.page + 1, self.page_count)
+        } else if self.grouped {
+            "/ by repo".into()
         } else {
             String::new()
         };
@@ -759,6 +984,28 @@ impl View {
                 },
                 "muted",
                 width,
+            );
+        }
+        for (row, label, working, total, continued) in &self.headers {
+            let y = row + self.top;
+            p.put(0, y, "─".repeat(width), "border", width);
+            let head = format!(" {label}{} ", if *continued { " (cont.)" } else { "" });
+            p.put(2, y, &head, "title", width.saturating_sub(4));
+            let x = 2 + crate::model::width(&head);
+            p.put(
+                x,
+                y,
+                format!(
+                    " {working} working · {total} {} ",
+                    match (self.subagents, *total == 1) {
+                        (false, true) => "agent",
+                        (false, false) => "agents",
+                        (true, true) => "subagent",
+                        (true, false) => "subagents",
+                    }
+                ),
+                if *working > 0 { "working" } else { "muted" },
+                width.saturating_sub(x + 2),
             );
         }
         let empty = Metrics::default();
@@ -1397,9 +1644,17 @@ impl View {
                 width,
             );
         }
-        let mut legend = "  ↑↓←→ select   Enter/click open   z details   s subagents   / filter   r refresh   Esc close";
+        let mut legend = if self.grouped {
+            "  ↑↓←→ select   Enter/click open   z details   s subagents   g ungroup   / filter   r refresh   Esc close"
+        } else {
+            "  ↑↓←→ select   Enter/click open   z details   s subagents   g group   / filter   r refresh   Esc close"
+        };
         if self.page_count > 1 && !self.zoom {
-            legend = "  Arrows select  Enter/click open  PgUp/PgDn pages  z details  s subagents  / filter  Esc close";
+            legend = if self.grouped {
+                "  Arrows select  Enter/click open  PgUp/PgDn pages  z details  s subagents  g ungroup  / filter  Esc close"
+            } else {
+                "  Arrows select  Enter/click open  PgUp/PgDn pages  z details  s subagents  g group  / filter  Esc close"
+            };
         }
         if self.searching {
             legend = "  Type to filter   Enter finish   Esc clear filter";

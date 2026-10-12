@@ -825,7 +825,7 @@
       {
         "x": 0,
         "y": 23,
-        "text": "  Arrows select  Enter/click open  PgUp/PgDn pages  z details  s subagents  / f\u2026",
+        "text": "  Arrows select  Enter/click open  PgUp/PgDn pages  z details  s subagents  g g\u2026",
         "style": "muted"
       }
     ]
@@ -3161,7 +3161,7 @@
       {
         "x": 0,
         "y": 37,
-        "text": "  \u2191\u2193\u2190\u2192 select   Enter/click open   z details   s subagents   / filter   r refresh   Esc close",
+        "text": "  \u2191\u2193\u2190\u2192 select   Enter/click open   z details   s subagents   g group   / filter   r refresh   Esc close",
         "style": "muted"
       }
     ]
@@ -6673,7 +6673,7 @@
       {
         "x": 0,
         "y": 63,
-        "text": "  \u2191\u2193\u2190\u2192 select   Enter/click open   z details   s subagents   / filter   r refresh   Esc close",
+        "text": "  \u2191\u2193\u2190\u2192 select   Enter/click open   z details   s subagents   g group   / filter   r refresh   Esc close",
         "style": "muted"
       }
     ]

@@ -159,6 +159,26 @@ pub fn key(view: &mut View, state: &State, event: KeyEvent) -> Action {
             view.toggle_completed();
             0
         }
+        KeyCode::Char('g') => {
+            view.toggle_grouped();
+            0
+        }
+        KeyCode::Down | KeyCode::Char('j') if view.grouped && !view.zoom => {
+            view.move_rows(state, 1);
+            0
+        }
+        KeyCode::Up | KeyCode::Char('k') if view.grouped && !view.zoom => {
+            view.move_rows(state, -1);
+            0
+        }
+        KeyCode::PageDown | KeyCode::Char(']') if view.grouped && !view.zoom => {
+            view.move_pages(state, 1);
+            0
+        }
+        KeyCode::PageUp | KeyCode::Char('[') if view.grouped && !view.zoom => {
+            view.move_pages(state, -1);
+            0
+        }
         KeyCode::Char('r') => return Action::Refresh,
         KeyCode::Char('s') => return Action::Subagents,
         KeyCode::Char('a') if view.subagents => return Action::Scope,
@@ -249,7 +269,13 @@ impl Drop for StopInput {
         self.0.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
-pub fn run(client: Option<Client>, demo: Option<State>, motion: bool, icons: String) -> Result<()> {
+pub fn run(
+    client: Option<Client>,
+    demo: Option<State>,
+    motion: bool,
+    icons: String,
+    grouped: bool,
+) -> Result<()> {
     let (tx, rx) = std::sync::mpsc::sync_channel(128);
     let refresh = client.clone().map(|c| {
         let tx = tx.clone();
@@ -297,6 +323,7 @@ pub fn run(client: Option<Client>, demo: Option<State>, motion: bool, icons: Str
     });
     let mut view = View::new(motion);
     view.icons = icons;
+    view.grouped = grouped;
     // What the view draws: the agent inventory, or its subagents as cards.
     let mut shown = state.clone();
     let mut shown_for: Option<Option<String>> = None;
