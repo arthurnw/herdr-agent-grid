@@ -2,7 +2,7 @@ use herdr_agent_grid::{
     install::config_with_shortcut,
     model::*,
     telemetry::{Cursor, estimate, rates},
-    view::View,
+    view::{View, sections},
 };
 use serde_json::{Value, json};
 
@@ -246,4 +246,94 @@ fn unicode_details_wrap_without_losing_message_content() {
     assert_eq!(body.matches('字').count(), 20);
     assert_eq!(clean("\x1b[31mred\x1b[0m\x1b]52;c;secret\x07\0"), "red");
     assert_eq!(clip("界界x", 3, true), "界…");
+}
+
+#[test]
+fn grouped_sections_never_overlap_and_keep_section_order() {
+    for w in [12, 40, 80, 140, 240] {
+        for h in [8, 24, 38, 64] {
+            for sizes in [vec![1], vec![3, 1, 7], vec![12, 0, 2, 30]] {
+                let s = sections(w, h, &sizes);
+                assert_eq!(s.rects.len(), sizes.iter().sum::<usize>());
+                for page in 0..s.page_count {
+                    let mut cells = std::collections::HashSet::new();
+                    for h in s.headers.iter().filter(|x| x.page == page) {
+                        assert!(cells.insert((0, h.y)));
+                    }
+                    for (r, _) in s.rects.iter().zip(&s.pages).filter(|(_, p)| **p == page) {
+                        assert!(r.x + r.width <= w);
+                        for x in r.x..r.x + r.width {
+                            for y in r.y..r.y + r.height {
+                                assert!(cells.insert((x, y)));
+                            }
+                        }
+                    }
+                }
+                assert!(s.pages.windows(2).all(|p| p[0] <= p[1]));
+                assert!(s.rows.windows(2).all(|r| r[0] <= r[1]));
+            }
+        }
+    }
+}
+
+#[test]
+fn grouping_sorts_by_repo_then_working_and_navigates_rows() {
+    let mut state = demo_state();
+    for (a, (repo, order)) in state.agents.iter_mut().zip([
+        ("web", 2),
+        ("api", 1),
+        ("api", 1),
+        ("web", 3),
+        ("", 4),
+        ("web", 2),
+    ]) {
+        a.repo = repo.into();
+        a.repo_key = if repo.is_empty() {
+            String::new()
+        } else {
+            format!("/{repo}/.git")
+        };
+        a.workspace_order = order;
+    }
+    let mut view = View::new(false);
+    view.grouped = true;
+    view.arrange(&state, 80, 44);
+    let order: Vec<_> = view
+        .items
+        .iter()
+        .map(|i| (&*state.agents[*i].repo, &*state.agents[*i].status))
+        .collect();
+    assert_eq!(
+        order,
+        [
+            ("api", "working"),
+            ("api", "blocked"),
+            ("web", "working"),
+            ("web", "working"),
+            ("web", "done"),
+            ("", "idle"),
+        ]
+    );
+    let labels: Vec<_> = view.headers.iter().map(|h| h.1.as_str()).collect();
+    assert_eq!(labels.first(), Some(&"api"));
+    // Two columns: down from the first api card lands on the first web card.
+    view.selected = state.agents[view.items[0]].pane_id.clone();
+    view.move_rows(&state, 1);
+    assert_eq!(view.selected, state.agents[view.items[2]].pane_id);
+    view.move_rows(&state, -1);
+    assert_eq!(view.selected, state.agents[view.items[0]].pane_id);
+}
+
+#[test]
+fn inventory_reads_repo_and_sidebar_order() {
+    let agents = agents_from(&json!({
+        "workspaces":[{"workspace_id":"w1","label":"feature","number":4,"worktree":{"repo_key":"/r/.git","repo_name":"r"}}],
+        "tabs":[{"tab_id":"w1:t2","label":"docs","number":2}],
+        "agents":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t2","agent":"pi","agent_status":"idle"}]
+    }));
+    let a = &agents[0];
+    assert_eq!(
+        (&*a.repo, &*a.repo_key, a.workspace_order, a.tab_order),
+        ("r", "/r/.git", 4, 2)
+    );
 }

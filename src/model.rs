@@ -10,6 +10,13 @@ pub struct Agent {
     pub name: String,
     pub title: String,
     pub workspace: String,
+    /// Repository name from Herdr's worktree metadata; empty outside a repo.
+    pub repo: String,
+    /// Groups linked worktrees with their main checkout.
+    pub repo_key: String,
+    /// Herdr's workspace and tab numbers, for sidebar order.
+    pub workspace_order: u64,
+    pub tab_order: u64,
     pub status: String,
     pub provider: String,
     pub session_kind: String,
@@ -413,6 +420,10 @@ pub fn agents_from(snapshot: &serde_json::Value) -> Vec<Agent> {
                     &Value::String(pid.into()),
                 ])),
                 workspace: clean(&first(&[&space["label"], &a["workspace_id"]])),
+                repo: clean(space["worktree"]["repo_name"].as_str().unwrap_or("")),
+                repo_key: space["worktree"]["repo_key"].as_str().unwrap_or("").into(),
+                workspace_order: space["number"].as_u64().unwrap_or(u64::MAX),
+                tab_order: tab["number"].as_u64().unwrap_or(u64::MAX),
                 status: a["agent_status"].as_str().unwrap_or("unknown").into(),
                 provider: first(&[&a["agent"], &p["agent"], &Value::String(kind.clone())]),
                 kind: clean(&kind),

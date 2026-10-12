@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add repo sections (`g`, or `--grouped`): cards grouped under a header per
+  repository from Herdr's worktree metadata, working agents first within each
+  section. Up/down and PgUp/PgDn follow the sections. The filter also matches
+  repo names.
 - Add subagent cards (`s`): each subagent of the selected agent, or of every
   agent (`a`), drawn as a full card with status, `Model@Effort`, latest call,
   message, time, tokens, API cost and trail. Enter focuses the parent's pane.

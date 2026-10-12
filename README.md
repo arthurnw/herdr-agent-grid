@@ -42,6 +42,7 @@ Select a card and press Enter to jump straight to its terminal.
 | **Subagent cards** | Press `s` to see the selected agent's subagents as full cards, with the same status, model, latest call, message, time, cost and trail. `a` switches between that agent and every agent's subagents; Enter focuses the parent's pane. |
 | **The latest update** | Recent tool call, call age, assistant message and a compact tool trail. Expand with `z` for message context and the tool’s file target or description. |
 | **Honest costs** | Reported API totals take precedence. Estimates show `~`; partial coverage shows `≥`; missing data stays unavailable. |
+| **Repo sections** | Press `g` (or start with `--grouped`) to group cards under a header per repository, from Herdr's worktree metadata. Linked worktrees join their main checkout; workspaces outside a repo go last under Other workspaces. Working agents stay first in each section. |
 | **Keyboard flow** | Arrows, Vim keys, Tab, filtering, pagination and mouse selection. Responsive cards with a persistent key legend. |
 | **Clear selection** | A double border and filled `SELECTED` title bar make arrow navigation easy to follow, while preserving status colors. |
 
@@ -143,7 +144,8 @@ on terminals without color support.
 | `z` | Expand or collapse details |
 | `s` | Show the selected agent's subagents as cards, or go back |
 | `a` | In subagent cards: this agent's subagents or all agents' |
-| `/` | Filter by name, task, workspace, status or tool |
+| `g` | Group cards into repo sections, or go back to one list |
+| `/` | Filter by name, task, workspace, repo, status or tool |
 | PgUp / PgDn or `[` / `]` | Change page; scroll subagents in expanded details |
 | Click Hide completed/stale or `d` | Hide/show completed and idle agents and subagents |
 | `r` | Refresh now |
