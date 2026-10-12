@@ -3,6 +3,7 @@ use crate::{
     model::{State, agents_from, clean, now},
     sessions::Telemetry,
     telemetry::screen_call,
+    unread::UnreadMarks,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -30,6 +31,7 @@ impl Refresher {
         let worker = shared.clone();
         thread::spawn(move || {
             let mut telemetry = Telemetry::default();
+            let mut unread = UnreadMarks::default();
             loop {
                 {
                     let mut g = worker.0.lock().unwrap();
@@ -40,7 +42,8 @@ impl Refresher {
                 }
                 match client.snapshot() {
                     Ok(snapshot) => {
-                        let agents = agents_from(&snapshot);
+                        let mut agents = agents_from(&snapshot);
+                        unread.apply(&mut agents);
                         telemetry.forget(&agents);
                         let targets = {
                             let mut g = worker.0.lock().unwrap();

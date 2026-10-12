@@ -340,6 +340,7 @@ impl View {
                 .enumerate()
                 .filter(|(_, a)| {
                     !self.hide_completed
+                        || a.unread
                         || !completed_or_stale(&a.status)
                         || state.metrics.get(&a.pane_id).is_some_and(|m| {
                             m.subagents.iter().any(|c| !completed_or_stale(&c.status))

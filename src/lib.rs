@@ -7,6 +7,7 @@ pub mod model;
 pub mod refresh;
 pub mod sessions;
 pub mod telemetry;
+pub mod unread;
 pub mod view;
 pub mod visuals;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
